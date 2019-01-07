@@ -1,3 +1,9 @@
+ARG BUILD_GOOS=linux
+ARG BUILD_GOARCH=amd64
+ARG SERVE_U=amd64
+ARG SERVE_R=alpine
+
+### Build ###
 FROM golang:1.11 AS builder
 
 WORKDIR /go/src/github.com/syncthing/syncthing
@@ -6,9 +12,11 @@ COPY . .
 ENV CGO_ENABLED=0
 ENV BUILD_HOST=syncthing.net
 ENV BUILD_USER=docker
-RUN rm -f syncthing && go run build.go -no-upgrade build syncthing
 
-FROM alpine
+RUN go run build.go -no-upgrade -goos $GOOS -goarch $GOARCH build
+
+### Serve ###
+FROM $SERVE_U/$SERVE_R
 
 EXPOSE 8384 22000 21027/udp
 

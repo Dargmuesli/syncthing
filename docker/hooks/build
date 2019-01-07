@@ -1,0 +1,2 @@
+#!/bin/sh
+docker build --build-arg SERVE_U=$SERVE_U --build-arg SERVE_R=$SERVE_R -f $DOCKERFILE_PATH -t $IMAGE_NAME .
