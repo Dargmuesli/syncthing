@@ -13,7 +13,7 @@ ENV CGO_ENABLED=0
 ENV BUILD_HOST=syncthing.net
 ENV BUILD_USER=docker
 
-RUN go run build.go -no-upgrade -goos $GOOS -goarch $GOARCH build
+RUN go run build.go -no-upgrade -goos $BUILD_GOOS -goarch $BUILD_GOARCH build
 
 ### Serve ###
 FROM $SERVE_U/$SERVE_R
