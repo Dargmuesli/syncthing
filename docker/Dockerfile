@@ -19,11 +19,13 @@ RUN go run build.go -no-upgrade -goos=$BUILD_GOOS -goarch=$BUILD_GOARCH build
 ### Serve ###
 FROM $SERVE_U/$SERVE_R
 
+ARG SERVE_APKARCH=x86_64
+
 EXPOSE 8384 22000 21027/udp
 
 VOLUME ["/var/syncthing"]
 
-RUN apk add --no-cache ca-certificates su-exec
+RUN apk add --no-cache --arch $SERVE_APKARCH ca-certificates su-exec
 
 COPY --from=builder /go/src/github.com/syncthing/syncthing/syncthing /bin/syncthing
 
