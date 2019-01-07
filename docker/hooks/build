@@ -1,3 +1,9 @@
 #!/bin/sh
 cd ..
+echo "BUILD_GOARCH: $BUILD_GOARCH"
+echo "BUILD_GOOS: $BUILD_GOOS"
+echo "SERVE_U: $SERVE_U"
+echo "SERVE_R: $SERVE_R"
+echo "DOCKERFILE_PATH: $DOCKERFILE_PATH"
+echo "IMAGE_NAME: $IMAGE_NAME"
 docker build --build-arg BUILD_GOARCH=$BUILD_GOARCH --build-arg BUILD_GOOS=$BUILD_GOOS --build-arg SERVE_U=$SERVE_U --build-arg SERVE_R=$SERVE_R -f $DOCKERFILE_PATH -t $IMAGE_NAME .
