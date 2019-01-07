@@ -1,10 +1,11 @@
-ARG BUILD_GOOS=linux
-ARG BUILD_GOARCH=amd64
 ARG SERVE_U=amd64
 ARG SERVE_R=alpine
 
 ### Build ###
 FROM golang:1.11 AS builder
+
+ARG BUILD_GOOS=linux
+ARG BUILD_GOARCH=amd64
 
 WORKDIR /go/src/github.com/syncthing/syncthing
 COPY . .
