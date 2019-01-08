@@ -1,5 +1,11 @@
+ARG SERVE_U=amd64
+ARG SERVE_R=alpine
+
 ### Build ###
 FROM golang:1.11 AS builder
+
+ARG BUILD_GOOS=linux
+ARG BUILD_GOARCH=amd64
 
 WORKDIR /go/src/github.com/syncthing/syncthing
 COPY . .
@@ -8,10 +14,14 @@ ENV CGO_ENABLED=0
 ENV BUILD_HOST=syncthing.net
 ENV BUILD_USER=docker
 
-RUN go run build.go build
+RUN go run build.go -no-upgrade -goos=$BUILD_GOOS -goarch=$BUILD_GOARCH build
 
 ### Serve ###
-FROM alpine
+FROM $SERVE_U/$SERVE_R
+
+ARG QEMUARCH=amd64
+
+__CROSS_COPY qemu-${QEMUARCH}-static /usr/bin/
 
 EXPOSE 8384 22000 21027/udp
 
@@ -29,7 +39,7 @@ HEALTHCHECK --interval=1m --timeout=10s \
 ENTRYPOINT \
   chown "${PUID}:${PGID}" /var/syncthing \
   && su-exec "${PUID}:${PGID}" \
-  env HOME=/var/syncthing \
-  /bin/syncthing \
-  -home /var/syncthing/config \
-  -gui-address 0.0.0.0:8384
+     env HOME=/var/syncthing \
+     /bin/syncthing \
+       -home /var/syncthing/config \
+       -gui-address 0.0.0.0:8384
