@@ -8,7 +8,7 @@ echo "DOCKERFILE_PATH: $DOCKERFILE_PATH"
 echo "IMAGE_NAME: $IMAGE_NAME"
 echo "QEMUARCH: $QEMUARCH"
 docker run --rm --privileged multiarch/qemu-user-static:register
-curl -L https://github.com/multiarch/qemu-user-static/releases/download/v3.1.0-2/x86_64_qemu-${QEMUARCH}-static.tar.gz | tar xz
+curl -L "https://github.com/multiarch/qemu-user-static/releases/download/v3.1.0-2/x86_64_qemu-${QEMUARCH}-static.tar.gz" | tar xz
 
 if [ ${QEMUARCH} == 'amd64' ]; then
     sed -i "/__CROSS_/d" docker/Dockerfile
