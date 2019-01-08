@@ -19,8 +19,6 @@ RUN go run build.go -no-upgrade -goos=$BUILD_GOOS -goarch=$BUILD_GOARCH build
 ### Serve ###
 FROM $SERVE_U/$SERVE_R
 
-ARG SERVE_APKARCH=x86_64
-
 EXPOSE 8384 22000 21027/udp
 
 VOLUME ["/var/syncthing"]
