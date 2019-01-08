@@ -7,13 +7,13 @@ echo "SERVE_R: $SERVE_R"
 echo "DOCKERFILE_PATH: $DOCKERFILE_PATH"
 echo "IMAGE_NAME: $IMAGE_NAME"
 echo "QEMUARCH: $QEMUARCH"
-docker run --rm --privileged multiarch/qemu-user-static:register
-curl -L "https://github.com/multiarch/qemu-user-static/releases/download/v3.1.0-2/x86_64_qemu-${QEMUARCH}-static.tar.gz" | tar xz
 
-if [ ${QEMUARCH} == 'amd64' ]; then
-    sed -i "/__CROSS_/d" docker/Dockerfile
+if [ "${QEMUARCH}" == 'amd64' ]; then
+    sed -i "/__CROSS_/d" $DOCKERFILE_PATH
 else
-    sed -i "s/__CROSS_//g" docker/Dockerfile
+    docker run --rm --privileged multiarch/qemu-user-static:register
+    curl -L "https://github.com/multiarch/qemu-user-static/releases/download/v3.1.0-2/x86_64_qemu-${QEMUARCH}-static.tar.gz" | tar xz
+    sed -i "s/__CROSS_//g" $DOCKERFILE_PATH
 fi
 
 docker build --build-arg BUILD_GOARCH=$BUILD_GOARCH --build-arg BUILD_GOOS=$BUILD_GOOS --build-arg SERVE_U=$SERVE_U --build-arg SERVE_R=$SERVE_R --build-arg QEMUARCH=$QEMUARCH -f $DOCKERFILE_PATH -t $IMAGE_NAME .
