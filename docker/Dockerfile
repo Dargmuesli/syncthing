@@ -25,7 +25,7 @@ EXPOSE 8384 22000 21027/udp
 
 VOLUME ["/var/syncthing"]
 
-RUN apk add --no-cache --arch $SERVE_APKARCH ca-certificates su-exec
+RUN apk add --update --no-cache ca-certificates su-exec
 
 COPY --from=builder /go/src/github.com/syncthing/syncthing/syncthing /bin/syncthing
 
