@@ -1,11 +1,9 @@
 #!/bin/bash
-cd ..
+docker manifest create $IMAGE_NAME:latest $IMAGE_NAME:i386-latest $IMAGE_NAME:amd64-latest $IMAGE_NAME:arm-latest $IMAGE_NAME:arm64v8-latest $IMAGE_NAME:ppc64le-latest $IMAGE_NAME:s390x-latest
 
-docker manifest create dargmuesli/syncthing:latest dargmuesli/syncthing-i386:latest dargmuesli/syncthing-amd64:latest dargmuesli/syncthing-arm:latest dargmuesli/syncthing-arm64v8:latest dargmuesli/syncthing-ppc64le:latest dargmuesli/syncthing-s390x:latest
-
-docker manifest annotate dargmuesli/syncthing:latest dargmuesli/syncthing-i386:latest --os linux --arch 386
-docker manifest annotate dargmuesli/syncthing:latest dargmuesli/syncthing-amd64:latest --os linux --arch amd64
-docker manifest annotate dargmuesli/syncthing:latest dargmuesli/syncthing-arm:latest --os linux --arch arm
-docker manifest annotate dargmuesli/syncthing:latest dargmuesli/syncthing-arm64v8:latest --os linux --arch arm64 --variant armv8
-docker manifest annotate dargmuesli/syncthing:latest dargmuesli/syncthing-ppc64le:latest --os linux --arch ppc64le
-docker manifest annotate dargmuesli/syncthing:latest dargmuesli/syncthing-s390x:latest --os linux --arch s390x
+docker manifest annotate $IMAGE_NAME:latest $IMAGE_NAME:i386-latest --os linux --arch 386
+docker manifest annotate $IMAGE_NAME:latest $IMAGE_NAME:amd64-latest --os linux --arch amd64
+docker manifest annotate $IMAGE_NAME:latest $IMAGE_NAME:arm-latest --os linux --arch arm
+docker manifest annotate $IMAGE_NAME:latest $IMAGE_NAME:arm64v8-latest --os linux --arch arm64 --variant armv8
+docker manifest annotate $IMAGE_NAME:latest $IMAGE_NAME:ppc64le-latest --os linux --arch ppc64le
+docker manifest annotate $IMAGE_NAME:latest $IMAGE_NAME:s390x-latest --os linux --arch s390x
