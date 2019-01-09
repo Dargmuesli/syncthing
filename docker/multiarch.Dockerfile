@@ -21,7 +21,7 @@ FROM $SERVE_U/$SERVE_R
 
 ARG QEMUARCH=amd64
 
-__CROSS_COPY qemu-${QEMUARCH}-static /usr/bin/
+__MULTIARCH_COPY qemu-${QEMUARCH}-static /usr/bin/
 
 EXPOSE 8384 22000 21027/udp
 
