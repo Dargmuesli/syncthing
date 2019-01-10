@@ -4,7 +4,7 @@ cd ..
 MULTIARCH_DOCKERFILE_PATH = $(sed -i "s/Dockerfile/multiarch.Dockerfile/")
 
 cat ~/.docker/config.json
-sed '2i "experimental": "enabled",' ~/.docker/config.json
+echo "{\"experimental\": \"enabled\"}" > ~/.docker/config.json
 
 docker run --rm --privileged multiarch/qemu-user-static:register
 
