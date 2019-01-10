@@ -1,6 +1,8 @@
 #!/bin/bash
 cd ..
 docker --version
+apt-get update && apt-get upgrade -y
+docker --version
 MULTIARCH_DOCKERFILE_PATH=$(echo "$DOCKERFILE_PATH" | sed "s/Dockerfile/multiarch.Dockerfile/")
 
 mkdir ~/.docker
