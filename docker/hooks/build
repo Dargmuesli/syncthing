@@ -1,9 +1,10 @@
 #!/bin/bash
 cd ..
-cat ~/.dockercfg
 docker --version
+cat ~/.dockercfg
 apt-get update && apt-get dist-upgrade -y
 docker --version
+cat ~/.docker/config.json
 MULTIARCH_DOCKERFILE_PATH=$(echo "$DOCKERFILE_PATH" | sed "s/Dockerfile/multiarch.Dockerfile/")
 
 mkdir ~/.docker
