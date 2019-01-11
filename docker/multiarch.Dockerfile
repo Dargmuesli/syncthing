@@ -22,8 +22,8 @@ ENV PUID=1000 PGID=1000
 EXPOSE 8384 22000 21027/udp
 VOLUME ["/var/syncthing"]
 
-RUN apk add --update --no-cache ca-certificates su-exec
 __MULTIARCH_COPY qemu-${QEMUARCH}-static /usr/bin/
+RUN apk add --update --no-cache ca-certificates su-exec
 COPY --from=builder /go/src/github.com/syncthing/syncthing/syncthing /bin/syncthing
 
 HEALTHCHECK --interval=1m --timeout=10s \
