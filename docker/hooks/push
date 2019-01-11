@@ -1,4 +1,12 @@
 #!/bin/bash
+docker push $(echo $IMAGE_NAME | sed "s/:latest/:i386-latest/")
+docker push $(echo $IMAGE_NAME | sed "s/:latest/:amd64-latest/")
+docker push $(echo $IMAGE_NAME | sed "s/:latest/:arm-latest/")
+docker push $(echo $IMAGE_NAME | sed "s/:latest/:arm64v8-latest/")
+docker push $(echo $IMAGE_NAME | sed "s/:latest/:ppc64le-latest/")
+docker push $(echo $IMAGE_NAME | sed "s/:latest/:s390x-latest/")
+
+
 docker manifest create $IMAGE_NAME $(echo $IMAGE_NAME | sed "s/:latest/:i386-latest/") $(echo $IMAGE_NAME | sed "s/:latest/:amd64-latest/") $(echo $IMAGE_NAME | sed "s/:latest/:arm-latest/") $(echo $IMAGE_NAME | sed "s/:latest/:arm64v8-latest/") $(echo $IMAGE_NAME | sed "s/:latest/:ppc64le-latest/") $(echo $IMAGE_NAME | sed "s/:latest/:s390x-latest/")
 
 docker manifest annotate $IMAGE_NAME $(echo $IMAGE_NAME | sed "s/:latest/:i386-latest/") --os linux --arch 386
