@@ -1,18 +1,14 @@
 #!/bin/bash
 
 archs=( i386:386: amd64:amd64: arm:arm: aarch64:arm64:armv8 ppc64le:ppc64le: s390x:s390x: )
-parts=( ${arch//:/ } )
+manifests=()
 
 # push individual tags
 for arch in "${archs[@]}"
 do
+  parts=( ${arch//:/ } )
+
   docker push "${IMAGE_NAME/:/:${parts[0]}}"
-done
-
-manifests=()
-
-for arch in "${archs[@]}"
-do
   manifests+=("${IMAGE_NAME/:/:${parts[0]}}")
 done
 
@@ -22,9 +18,8 @@ docker manifest create $IMAGE_NAME $manifests
 # annotate manifest
 for arch in "${archs[@]}"
 do
-  echo ${parts[0]}
-  echo ${parts[1]}
-  echo ${parts[2]}
+  parts=( ${arch//:/ } )
+
   if [ "${parts[2]}" == "" ]
   then
     docker manifest annotate $IMAGE_NAME "${IMAGE_NAME/:/:${parts[0]}}" --os linux --arch ${parts[1]}
