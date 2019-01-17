@@ -8,8 +8,8 @@ for arch in "${archs[@]}"
 do
   parts=( ${arch//:/ } )
 
-  docker push "${IMAGE_NAME/:/:${parts[0]}}"
-  manifests+=("${IMAGE_NAME/:/:${parts[0]}}")
+  docker push "${IMAGE_NAME/:/:-${parts[0]}}"
+  manifests+=("${IMAGE_NAME/:/:-${parts[0]}}")
 done
 
 # create manifest
@@ -22,9 +22,9 @@ do
 
   if [ "${parts[2]}" == "" ]
   then
-    docker manifest annotate $IMAGE_NAME "${IMAGE_NAME/:/:${parts[0]}}" --os linux --arch ${parts[1]}
+    docker manifest annotate $IMAGE_NAME "${IMAGE_NAME/:/:-${parts[0]}}" --os linux --arch ${parts[1]}
   else
-    docker manifest annotate $IMAGE_NAME "${IMAGE_NAME/:/:${parts[0]}}" --os linux --arch ${parts[1]} --variant ${parts[2]}
+    docker manifest annotate $IMAGE_NAME "${IMAGE_NAME/:/:-${parts[0]}}" --os linux --arch ${parts[1]} --variant ${parts[2]}
   fi
 done
 
