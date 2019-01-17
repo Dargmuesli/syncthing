@@ -13,7 +13,7 @@ do
 done
 
 # create manifest
-docker manifest create $IMAGE_NAME $manifests
+docker manifest create $IMAGE_NAME ${manifests[@]}
 
 # annotate manifest
 for arch in "${archs[@]}"
