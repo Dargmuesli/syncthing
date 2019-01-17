@@ -33,5 +33,5 @@ do
     sed "s/__MULTIARCH_//g" "$MULTIARCH_DOCKERFILE_PATH" > "$DOCKERFILE_PATH"
   fi
 
-  docker build --build-arg BUILD_GOOS="linux" --build-arg BUILD_GOARCH="${parts[0]}" --build-arg SERVE_U="${parts[1]}" --build-arg SERVE_R="${parts[2]}" --build-arg QEMUARCH="${parts[3]}" -f "$DOCKERFILE_PATH" -t "${IMAGE_NAME/:latest/:${parts[3]}-latest}" .
+  docker build --build-arg BUILD_GOOS="linux" --build-arg BUILD_GOARCH="${parts[0]}" --build-arg SERVE_U="${parts[1]}" --build-arg SERVE_R="${parts[2]}" --build-arg QEMUARCH="${parts[3]}" -f "$DOCKERFILE_PATH" -t "${IMAGE_NAME/:/:${parts[3]}}" .
 done
