@@ -22,6 +22,9 @@ docker manifest create $IMAGE_NAME $manifests
 # annotate manifest
 for arch in "${archs[@]}"
 do
+  echo ${parts[0]}
+  echo ${parts[1]}
+  echo ${parts[2]}
   if [ "${parts[2]}" == "" ]
   then
     docker manifest annotate $IMAGE_NAME "${IMAGE_NAME/:/:${parts[0]}}" --os linux --arch ${parts[1]}
