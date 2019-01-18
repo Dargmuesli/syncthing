@@ -1,20 +1,35 @@
 #!/bin/bash
 
-# tag:arch:variant
-archs=( linux:i386:386: linux:amd64:amd64: linux:arm:arm: linux:aarch64:arm64:armv8 linux:ppc64le:ppc64le: linux:s390x:s390x: )
-manifests=()
+# load variable combinations
+archs=()
+readarray -t archs < "$THIS/archs.csv"
+all_manifests=()
 
 # push individual tags
-for arch in "${archs[@]}"
+for arch in "${archs[@]:1}"
 do
   parts=( ${arch//:/ } )
-  image_name_full="${IMAGE_NAME/:/:${parts[1]}-}"
-  manifests+=("$image_name_full")
-  annotate_parameters=("--os ${parts[0]} --arch ${parts[2]}")
 
-  if [ "${parts[3]}" != "" ]
+  BUILD_GOOS="${parts[0]}"
+  BUILD_GOARCH="${parts[1]}"
+  SERVE_U="${parts[2]}"
+  SERVE_R="${parts[3]}"
+  QEMUARCH="${parts[4]}"
+  VARIANT="${parts[5]}"
+
+  # skip empty lines
+  if [ "$BUILD_GOOS" == "" ]
   then
-    annotate_parameters+=("--variant ${parts[3]}")
+    break
+  fi
+
+  image_name_full="${IMAGE_NAME/:/:$QEMUARCH-}"
+  all_manifests+=("$image_name_full")
+  annotate_parameters=("--os $BUILD_GOOS --arch $BUILD_GOARCH")
+
+  if [ "$VARIANT" != "" ]
+  then
+    annotate_parameters+=("--variant $VARIANT")
   fi
 
   docker manifest create "$image_name_full" "$image_name_full"
@@ -22,7 +37,7 @@ do
   docker manifest push "$image_name_full"
 
   # update global manifest
-  docker manifest create $IMAGE_NAME ${manifests[@]} -a
+  docker manifest create $IMAGE_NAME ${all_manifests[@]} -a
   docker manifest annotate $IMAGE_NAME "$image_name_full" ${annotate_parameters[@]}
 done
 
