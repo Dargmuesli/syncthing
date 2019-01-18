@@ -1,11 +1,11 @@
 #!/bin/bash
 
-# load variable combinations
+# load build variable combinations
 archs=()
 readarray -t archs < "$THIS/archs.csv"
 all_manifests=()
 
-# push individual tags
+# push individual architecture tags
 for arch in "${archs[@]:1}"
 do
   parts=( ${arch//:/ } )
@@ -17,7 +17,7 @@ do
   QEMUARCH="${parts[4]}"
   VARIANT="${parts[5]}"
 
-  # skip empty lines
+  # skip empty lines that someone will surely commit one day
   if [ "$BUILD_GOOS" == "" ]
   then
     break
@@ -32,6 +32,7 @@ do
     annotate_parameters+=("--variant $VARIANT")
   fi
 
+  # create and push manifest for individual architecture tag
   docker manifest create "$image_name_full" "$image_name_full"
   docker manifest annotate "$image_name_full" "$image_name_full" ${annotate_parameters[@]}
   docker manifest push "$image_name_full"
@@ -41,5 +42,5 @@ do
   docker manifest annotate $IMAGE_NAME "$image_name_full" ${annotate_parameters[@]}
 done
 
-# push manifest
+# push global manifest
 docker manifest push $IMAGE_NAME
