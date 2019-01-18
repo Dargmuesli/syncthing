@@ -1,11 +1,11 @@
 #!/bin/bash
 
-# navigate from Dockerfile folder to project root
-cd ..
-
 # get this script's directory and the multiarch Dockerfile path
 THIS=$(dirname $(readlink -f "$0"))
 MULTIARCH_DOCKERFILE_PATH="${DOCKERFILE_PATH/Dockerfile/multiarch.Dockerfile}"
+
+# navigate from Dockerfile folder to project root
+cd ..
 
 ###   temporary hack that upgrades DockerHub's build machine Docker version to 18 (supports manifests)   ###
 # display current Docker version

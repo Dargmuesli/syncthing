@@ -1,5 +1,8 @@
 #!/bin/bash
 
+# get this script's directory
+THIS=$(dirname $(readlink -f "$0"))
+
 # load build variable combinations
 archs=()
 readarray -t archs < "$THIS/archs.csv"
