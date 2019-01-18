@@ -37,6 +37,7 @@ do
 
   # push manifest for individual architecture tag
   docker push "$image_name_full"
+  docker manifest create "$image_name_full" "$image_name_full"
   docker manifest annotate "$image_name_full" "$image_name_full" ${annotate_parameters[@]}
   docker manifest push "$image_name_full"
 
