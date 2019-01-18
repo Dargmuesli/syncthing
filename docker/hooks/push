@@ -3,7 +3,6 @@
 # tag:arch:variant
 archs=( linux:i386:386: linux:amd64:amd64: linux:arm:arm: linux:aarch64:arm64:armv8 linux:ppc64le:ppc64le: linux:s390x:s390x: )
 manifests=()
-annotate_parameters=()
 
 # push individual tags
 for arch in "${archs[@]}"
@@ -11,18 +10,17 @@ do
   parts=( ${arch//:/ } )
   image_name_full="${IMAGE_NAME/:/:${parts[1]}-}"
   manifests+=("$image_name_full")
-  annotate_parameters+=("--os ${parts[0]} --arch ${parts[2]}")
-  
-  docker manifest create "$image_name_full" "$image_name_full"
-  
+  annotate_parameters=("--os ${parts[0]} --arch ${parts[2]}")
+
   if [ "${parts[3]}" != "" ]
   then
     annotate_parameters+=("--variant ${parts[3]}")
   fi
-  
+
+  docker manifest create "$image_name_full" "$image_name_full"
   docker manifest annotate "$image_name_full" "$image_name_full" ${annotate_parameters[@]}
   docker manifest push "$image_name_full"
-  
+
   # update global manifest
   docker manifest create $IMAGE_NAME ${manifests[@]} -a
   docker manifest annotate $IMAGE_NAME "$image_name_full" ${annotate_parameters[@]}
