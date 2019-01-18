@@ -14,7 +14,7 @@ docker --version
 if [[ $(docker --version) == "Docker version 17"* ]]
 then
   # upgrade Docker and install jq
-  apt-get update && dist-upgrade docker -y && apt-get install jq -y
+  apt-get update && apt-get dist-upgrade docker -y && apt-get install jq -y
 
   # display new Docker version
   docker --version
