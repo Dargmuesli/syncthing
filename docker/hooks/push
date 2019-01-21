@@ -43,8 +43,10 @@ do
   # update global manifest
   docker manifest create $IMAGE_NAME ${all_manifests[@]} -a
   docker manifest annotate $IMAGE_NAME "$image_name_full" ${annotate_parameters[@]}
+  
+  docker manifest push "$image_name_full"
 done
 
 # push global manifest
 docker manifest push $IMAGE_NAME
-docker manifest push ${all_manifests[@]}
+
