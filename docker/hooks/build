@@ -61,7 +61,7 @@ do
   else
     # enable MULTIARCH line to build multiarch images
     curl -L "https://github.com/multiarch/qemu-user-static/releases/download/v3.1.0-2/x86_64_qemu-$QEMUARCH-static.tar.gz" \
-      | tar xz
+      | tar xz -C "docker/build/"
     sed "s/__MULTIARCH_//g" "$MULTIARCH_DOCKERFILE_TEMPLATE_PATH" > "$MULTIARCH_DOCKERFILE_PATH"
   fi
 
