@@ -8,12 +8,8 @@ echo $MULTIARCH_DOCKERFILE_TEMPLATE_PATH
 echo $MULTIARCH_DOCKERFILE_PATH
 
 # create build directory and navigate from Dockerfile folder to project root
-ls -la
-
 mkdir build
-ls -la
 cd ..
-ls -la
 
 ###   temporary hack that upgrades DockerHub's build machine Docker version to 18 (supports manifests)   ###
 # display current Docker version
