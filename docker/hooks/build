@@ -4,12 +4,11 @@
 THIS=$(dirname $(readlink -f "$0"))
 MULTIARCH_DOCKERFILE_TEMPLATE_PATH="${DOCKERFILE_PATH/Dockerfile/Dockerfile-multiarch.template}"
 MULTIARCH_DOCKERFILE_PATH="${MULTIARCH_DOCKERFILE_TEMPLATE_PATH/Dockerfile-multiarch.template/build\/Dockerfile}"
-echo $MULTIARCH_DOCKERFILE_TEMPLATE_PATH
-echo $MULTIARCH_DOCKERFILE_PATH
 
-# create build directory and navigate from Dockerfile folder to project root
+# create build directory, navigate from Dockerfile folder to project root and disable git filemode change detection
 mkdir build
 cd ..
+git config core.filemode false
 
 ###   temporary hack that upgrades DockerHub's build machine Docker version to 18 (supports manifests)   ###
 # display current Docker version
