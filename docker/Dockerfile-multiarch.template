@@ -14,6 +14,7 @@ RUN apk add --no-cache git
 
 WORKDIR /go/src/github.com/syncthing/syncthing
 COPY . .
+RUN git status
 RUN go run build.go -no-upgrade -goos=$BUILD_GOOS -goarch=$BUILD_GOARCH build
 
 ### Serve ###
