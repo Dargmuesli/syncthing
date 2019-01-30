@@ -5,7 +5,8 @@ THIS=$(dirname $(readlink -f "$0"))
 MULTIARCH_DOCKERFILE_TEMPLATE_PATH="${DOCKERFILE_PATH/Dockerfile/Dockerfile-multiarch.template}"
 MULTIARCH_DOCKERFILE_PATH="${MULTIARCH_DOCKERFILE_TEMPLATE_PATH/Dockerfile/build\/Dockerfile}"
 
-# navigate from Dockerfile folder to project root
+# create build directory and navigate from Dockerfile folder to project root
+mkdir build
 cd ..
 
 ###   temporary hack that upgrades DockerHub's build machine Docker version to 18 (supports manifests)   ###
