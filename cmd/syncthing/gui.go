@@ -27,13 +27,15 @@ import (
 	"strings"
 	"time"
 
-	"github.com/rcrowley/go-metrics"
+	metrics "github.com/rcrowley/go-metrics"
+	"github.com/syncthing/syncthing/lib/build"
 	"github.com/syncthing/syncthing/lib/config"
 	"github.com/syncthing/syncthing/lib/connections"
 	"github.com/syncthing/syncthing/lib/db"
 	"github.com/syncthing/syncthing/lib/discover"
 	"github.com/syncthing/syncthing/lib/events"
 	"github.com/syncthing/syncthing/lib/fs"
+	"github.com/syncthing/syncthing/lib/locations"
 	"github.com/syncthing/syncthing/lib/logger"
 	"github.com/syncthing/syncthing/lib/model"
 	"github.com/syncthing/syncthing/lib/protocol"
@@ -531,7 +533,6 @@ func corsMiddleware(next http.Handler, allowFrameLoading bool) http.Handler {
 
 		// For everything else, pass to the next handler
 		next.ServeHTTP(w, r)
-		return
 	})
 }
 
@@ -568,7 +569,7 @@ func noCacheMiddleware(h http.Handler) http.Handler {
 
 func withDetailsMiddleware(id protocol.DeviceID, h http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("X-Syncthing-Version", Version)
+		w.Header().Set("X-Syncthing-Version", build.Version)
 		w.Header().Set("X-Syncthing-ID", id.String())
 		h.ServeHTTP(w, r)
 	})
@@ -609,12 +610,15 @@ func (s *apiService) getJSMetadata(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *apiService) getSystemVersion(w http.ResponseWriter, r *http.Request) {
-	sendJSON(w, map[string]string{
-		"version":     Version,
-		"codename":    Codename,
-		"longVersion": LongVersion,
+	sendJSON(w, map[string]interface{}{
+		"version":     build.Version,
+		"codename":    build.Codename,
+		"longVersion": build.LongVersion,
 		"os":          runtime.GOOS,
 		"arch":        runtime.GOARCH,
+		"isBeta":      build.IsBeta,
+		"isCandidate": build.IsCandidate,
+		"isRelease":   build.IsRelease,
 	})
 }
 
@@ -1078,7 +1082,7 @@ func (s *apiService) getSupportBundle(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Panic files
-	if panicFiles, err := filepath.Glob(filepath.Join(baseDirs["config"], "panic*")); err == nil {
+	if panicFiles, err := filepath.Glob(filepath.Join(locations.GetBaseDir(locations.ConfigBaseDir), "panic*")); err == nil {
 		for _, f := range panicFiles {
 			if panicFile, err := ioutil.ReadFile(f); err != nil {
 				l.Warnf("Support bundle: failed to load %s: %s", filepath.Base(f), err)
@@ -1089,16 +1093,16 @@ func (s *apiService) getSupportBundle(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Archived log (default on Windows)
-	if logFile, err := ioutil.ReadFile(locations[locLogFile]); err == nil {
+	if logFile, err := ioutil.ReadFile(locations.Get(locations.LogFile)); err == nil {
 		files = append(files, fileEntry{name: "log-ondisk.txt", data: logFile})
 	}
 
 	// Version and platform information as a JSON
 	if versionPlatform, err := json.MarshalIndent(map[string]string{
 		"now":         time.Now().Format(time.RFC3339),
-		"version":     Version,
-		"codename":    Codename,
-		"longVersion": LongVersion,
+		"version":     build.Version,
+		"codename":    build.Codename,
+		"longVersion": build.LongVersion,
 		"os":          runtime.GOOS,
 		"arch":        runtime.GOARCH,
 	}, "", "  "); err == nil {
@@ -1116,17 +1120,19 @@ func (s *apiService) getSupportBundle(w http.ResponseWriter, r *http.Request) {
 
 	// Heap and CPU Proofs as a pprof extension
 	var heapBuffer, cpuBuffer bytes.Buffer
-	filename := fmt.Sprintf("syncthing-heap-%s-%s-%s-%s.pprof", runtime.GOOS, runtime.GOARCH, Version, time.Now().Format("150405")) // hhmmss
+	filename := fmt.Sprintf("syncthing-heap-%s-%s-%s-%s.pprof", runtime.GOOS, runtime.GOARCH, build.Version, time.Now().Format("150405")) // hhmmss
 	runtime.GC()
-	pprof.WriteHeapProfile(&heapBuffer)
-	files = append(files, fileEntry{name: filename, data: heapBuffer.Bytes()})
+	if err := pprof.WriteHeapProfile(&heapBuffer); err == nil {
+		files = append(files, fileEntry{name: filename, data: heapBuffer.Bytes()})
+	}
 
 	const duration = 4 * time.Second
-	filename = fmt.Sprintf("syncthing-cpu-%s-%s-%s-%s.pprof", runtime.GOOS, runtime.GOARCH, Version, time.Now().Format("150405")) // hhmmss
-	pprof.StartCPUProfile(&cpuBuffer)
-	time.Sleep(duration)
-	pprof.StopCPUProfile()
-	files = append(files, fileEntry{name: filename, data: cpuBuffer.Bytes()})
+	filename = fmt.Sprintf("syncthing-cpu-%s-%s-%s-%s.pprof", runtime.GOOS, runtime.GOARCH, build.Version, time.Now().Format("150405")) // hhmmss
+	if err := pprof.StartCPUProfile(&cpuBuffer); err == nil {
+		time.Sleep(duration)
+		pprof.StopCPUProfile()
+		files = append(files, fileEntry{name: filename, data: cpuBuffer.Bytes()})
+	}
 
 	// Add buffer files to buffer zip
 	var zipFilesBuffer bytes.Buffer
@@ -1138,7 +1144,7 @@ func (s *apiService) getSupportBundle(w http.ResponseWriter, r *http.Request) {
 
 	// Set zip file name and path
 	zipFileName := fmt.Sprintf("support-bundle-%s-%s.zip", s.id.Short().String(), time.Now().Format("2006-01-02T150405"))
-	zipFilePath := filepath.Join(baseDirs["config"], zipFileName)
+	zipFilePath := filepath.Join(locations.GetBaseDir(locations.ConfigBaseDir), zipFileName)
 
 	// Write buffer zip to local zip file (back up)
 	if err := ioutil.WriteFile(zipFilePath, zipFilesBuffer.Bytes(), 0600); err != nil {
@@ -1319,16 +1325,16 @@ func (s *apiService) getSystemUpgrade(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	opts := s.cfg.Options()
-	rel, err := upgrade.LatestRelease(opts.ReleasesURL, Version, opts.UpgradeToPreReleases)
+	rel, err := upgrade.LatestRelease(opts.ReleasesURL, build.Version, opts.UpgradeToPreReleases)
 	if err != nil {
 		http.Error(w, err.Error(), 500)
 		return
 	}
 	res := make(map[string]interface{})
-	res["running"] = Version
+	res["running"] = build.Version
 	res["latest"] = rel.Tag
-	res["newer"] = upgrade.CompareVersions(rel.Tag, Version) == upgrade.Newer
-	res["majorNewer"] = upgrade.CompareVersions(rel.Tag, Version) == upgrade.MajorNewer
+	res["newer"] = upgrade.CompareVersions(rel.Tag, build.Version) == upgrade.Newer
+	res["majorNewer"] = upgrade.CompareVersions(rel.Tag, build.Version) == upgrade.MajorNewer
 
 	sendJSON(w, res)
 }
@@ -1361,14 +1367,14 @@ func (s *apiService) getLang(w http.ResponseWriter, r *http.Request) {
 
 func (s *apiService) postSystemUpgrade(w http.ResponseWriter, r *http.Request) {
 	opts := s.cfg.Options()
-	rel, err := upgrade.LatestRelease(opts.ReleasesURL, Version, opts.UpgradeToPreReleases)
+	rel, err := upgrade.LatestRelease(opts.ReleasesURL, build.Version, opts.UpgradeToPreReleases)
 	if err != nil {
 		l.Warnln("getting latest release:", err)
 		http.Error(w, err.Error(), 500)
 		return
 	}
 
-	if upgrade.CompareVersions(rel.Tag, Version) > upgrade.Equal {
+	if upgrade.CompareVersions(rel.Tag, build.Version) > upgrade.Equal {
 		err = upgrade.To(rel)
 		if err != nil {
 			l.Warnln("upgrading:", err)
@@ -1637,18 +1643,19 @@ func (s *apiService) getCPUProf(w http.ResponseWriter, r *http.Request) {
 		duration = 30 * time.Second
 	}
 
-	filename := fmt.Sprintf("syncthing-cpu-%s-%s-%s-%s.pprof", runtime.GOOS, runtime.GOARCH, Version, time.Now().Format("150405")) // hhmmss
+	filename := fmt.Sprintf("syncthing-cpu-%s-%s-%s-%s.pprof", runtime.GOOS, runtime.GOARCH, build.Version, time.Now().Format("150405")) // hhmmss
 
 	w.Header().Set("Content-Type", "application/octet-stream")
 	w.Header().Set("Content-Disposition", "attachment; filename="+filename)
 
-	pprof.StartCPUProfile(w)
-	time.Sleep(duration)
-	pprof.StopCPUProfile()
+	if err := pprof.StartCPUProfile(w); err == nil {
+		time.Sleep(duration)
+		pprof.StopCPUProfile()
+	}
 }
 
 func (s *apiService) getHeapProf(w http.ResponseWriter, r *http.Request) {
-	filename := fmt.Sprintf("syncthing-heap-%s-%s-%s-%s.pprof", runtime.GOOS, runtime.GOARCH, Version, time.Now().Format("150405")) // hhmmss
+	filename := fmt.Sprintf("syncthing-heap-%s-%s-%s-%s.pprof", runtime.GOOS, runtime.GOARCH, build.Version, time.Now().Format("150405")) // hhmmss
 
 	w.Header().Set("Content-Type", "application/octet-stream")
 	w.Header().Set("Content-Disposition", "attachment; filename="+filename)

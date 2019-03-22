@@ -8,11 +8,9 @@ package model
 
 import (
 	"bytes"
-	"crypto/tls"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"net"
 	"path/filepath"
 	"reflect"
@@ -117,7 +115,7 @@ type Model struct {
 type folderFactory func(*Model, config.FolderConfiguration, versioner.Versioner, fs.Filesystem) service
 
 var (
-	folderFactories = make(map[config.FolderType]folderFactory, 0)
+	folderFactories = make(map[config.FolderType]folderFactory)
 )
 
 var (
@@ -128,6 +126,9 @@ var (
 	errFolderNotRunning  = errors.New("folder is not running")
 	errFolderMissing     = errors.New("no such folder")
 	errNetworkNotAllowed = errors.New("network not allowed")
+	// errors about why a connection is closed
+	errIgnoredFolderRemoved = errors.New("folder no longer ignored")
+	errReplacingConnection  = errors.New("replacing connection")
 )
 
 // NewModel creates and starts a new model. The model starts in read-only mode,
@@ -168,7 +169,7 @@ func NewModel(cfg *config.Wrapper, id protocol.DeviceID, clientName, clientVersi
 		pmut:                sync.NewRWMutex(),
 	}
 	if cfg.Options().ProgressUpdateIntervalS > -1 {
-		go m.progressEmitter.Serve()
+		m.Add(m.progressEmitter)
 	}
 	scanLimiter.setCapacity(cfg.Options().MaxConcurrentScans)
 	cfg.Subscribe(m)
@@ -226,7 +227,7 @@ func (m *Model) startFolderLocked(folder string) config.FolderType {
 
 	// Close connections to affected devices
 	for _, id := range cfg.DeviceIDs() {
-		m.closeLocked(id)
+		m.closeLocked(id, fmt.Errorf("started folder %v", cfg.Description()))
 	}
 
 	v, ok := fs.Sequence(protocol.LocalDeviceID), true
@@ -339,7 +340,7 @@ func (m *Model) RemoveFolder(cfg config.FolderConfiguration) {
 	// Delete syncthing specific files
 	cfg.Filesystem().RemoveAll(config.DefaultMarkerName)
 
-	m.tearDownFolderLocked(cfg)
+	m.tearDownFolderLocked(cfg, fmt.Errorf("removing folder %v", cfg.Description()))
 	// Remove it from the database
 	db.DropFolder(m.db, cfg.ID)
 
@@ -347,12 +348,12 @@ func (m *Model) RemoveFolder(cfg config.FolderConfiguration) {
 	m.fmut.Unlock()
 }
 
-func (m *Model) tearDownFolderLocked(cfg config.FolderConfiguration) {
+func (m *Model) tearDownFolderLocked(cfg config.FolderConfiguration, err error) {
 	// Close connections to affected devices
 	// Must happen before stopping the folder service to abort ongoing
 	// transmissions and thus allow timely service termination.
 	for _, dev := range cfg.Devices {
-		m.closeLocked(dev.DeviceID)
+		m.closeLocked(dev.DeviceID, err)
 	}
 
 	// Stop the services running for this folder and wait for them to finish
@@ -398,14 +399,26 @@ func (m *Model) RestartFolder(from, to config.FolderConfiguration) {
 	defer m.fmut.Unlock()
 	defer m.pmut.Unlock()
 
-	m.tearDownFolderLocked(from)
-	if to.Paused {
-		l.Infoln("Paused folder", to.Description())
-	} else {
-		m.addFolderLocked(to)
-		folderType := m.startFolderLocked(to.ID)
-		l.Infoln("Restarted folder", to.Description(), fmt.Sprintf("(%s)", folderType))
+	var infoMsg string
+	var errMsg string
+	switch {
+	case to.Paused:
+		infoMsg = "Paused"
+		errMsg = "pausing"
+	case from.Paused:
+		infoMsg = "Unpaused"
+		errMsg = "unpausing"
+	default:
+		infoMsg = "Restarted"
+		errMsg = "restarting"
 	}
+
+	m.tearDownFolderLocked(from, fmt.Errorf("%v folder %v", errMsg, to.Description()))
+	if !to.Paused {
+		m.addFolderLocked(to)
+		m.startFolderLocked(to.ID)
+	}
+	l.Infof("%v folder %v (%v)", infoMsg, to.Description(), to.Type)
 }
 
 func (m *Model) UsageReportingStats(version int, preview bool) map[string]interface{} {
@@ -476,12 +489,8 @@ func (m *Model) UsageReportingStats(version int, preview bool) map[string]interf
 				}
 
 				// Noops, remove
-				if strings.HasSuffix(line, "**") {
-					line = line[:len(line)-2]
-				}
-				if strings.HasPrefix(line, "**/") {
-					line = line[3:]
-				}
+				line = strings.TrimSuffix(line, "**")
+				line = strings.TrimPrefix(line, "**/")
 
 				if strings.HasPrefix(line, "/") {
 					ignoreStats["rooted"] += 1
@@ -495,7 +504,7 @@ func (m *Model) UsageReportingStats(version int, preview bool) map[string]interf
 				if strings.Contains(line, "**") {
 					ignoreStats["doubleStars"] += 1
 					// Remove not to trip up star checks.
-					strings.Replace(line, "**", "", -1)
+					line = strings.Replace(line, "**", "", -1)
 				}
 
 				if strings.Contains(line, "*") {
@@ -963,7 +972,6 @@ func (m *Model) ClusterConfig(deviceID protocol.DeviceID, cm protocol.ClusterCon
 		panic("bug: ClusterConfig called on closed or nonexistent connection")
 	}
 
-	dbLocation := filepath.Dir(m.db.Location())
 	changed := false
 	deviceCfg := m.cfg.Devices()[deviceID]
 
@@ -1088,7 +1096,7 @@ func (m *Model) ClusterConfig(deviceID protocol.DeviceID, cm protocol.ClusterCon
 			}
 		}
 
-		go sendIndexes(conn, folder.ID, fs, m.folderIgnores[folder.ID], startSequence, dbLocation, dropSymlinks)
+		go sendIndexes(conn, folder.ID, fs, m.folderIgnores[folder.ID], startSequence, dropSymlinks)
 	}
 
 	m.pmut.Lock()
@@ -1342,21 +1350,21 @@ func (m *Model) Closed(conn protocol.Connection, err error) {
 }
 
 // close will close the underlying connection for a given device
-func (m *Model) close(device protocol.DeviceID) {
+func (m *Model) close(device protocol.DeviceID, err error) {
 	m.pmut.Lock()
-	m.closeLocked(device)
+	m.closeLocked(device, err)
 	m.pmut.Unlock()
 }
 
 // closeLocked will close the underlying connection for a given device
-func (m *Model) closeLocked(device protocol.DeviceID) {
+func (m *Model) closeLocked(device protocol.DeviceID, err error) {
 	conn, ok := m.conn[device]
 	if !ok {
 		// There is no connection to close
 		return
 	}
 
-	closeRawConn(conn)
+	conn.Close(err)
 }
 
 // Implements protocol.RequestResponse
@@ -1719,7 +1727,7 @@ func (m *Model) AddConnection(conn connections.Connection, hello protocol.HelloR
 		// back into Closed() for the cleanup.
 		closed := m.closed[deviceID]
 		m.pmut.Unlock()
-		closeRawConn(oldConn)
+		oldConn.Close(errReplacingConnection)
 		<-closed
 		m.pmut.Lock()
 	}
@@ -1824,7 +1832,7 @@ func (m *Model) receivedFile(folder string, file protocol.FileInfo) {
 	m.folderStatRef(folder).ReceivedFile(file.Name, file.IsDeleted())
 }
 
-func sendIndexes(conn protocol.Connection, folder string, fs *db.FileSet, ignores *ignore.Matcher, prevSequence int64, dbLocation string, dropSymlinks bool) {
+func sendIndexes(conn protocol.Connection, folder string, fs *db.FileSet, ignores *ignore.Matcher, prevSequence int64, dropSymlinks bool) {
 	deviceID := conn.ID()
 	var err error
 
@@ -1832,7 +1840,7 @@ func sendIndexes(conn protocol.Connection, folder string, fs *db.FileSet, ignore
 	defer l.Debugf("Exiting sendIndexes for %s to %s at %s: %v", folder, deviceID, conn, err)
 
 	// We need to send one index, regardless of whether there is something to send or not
-	prevSequence, err = sendIndexTo(prevSequence, conn, folder, fs, ignores, dbLocation, dropSymlinks)
+	prevSequence, err = sendIndexTo(prevSequence, conn, folder, fs, ignores, dropSymlinks)
 
 	// Subscribe to LocalIndexUpdated (we have new information to send) and
 	// DeviceDisconnected (it might be us who disconnected, so we should
@@ -1855,7 +1863,7 @@ func sendIndexes(conn protocol.Connection, folder string, fs *db.FileSet, ignore
 			continue
 		}
 
-		prevSequence, err = sendIndexTo(prevSequence, conn, folder, fs, ignores, dbLocation, dropSymlinks)
+		prevSequence, err = sendIndexTo(prevSequence, conn, folder, fs, ignores, dropSymlinks)
 
 		// Wait a short amount of time before entering the next loop. If there
 		// are continuous changes happening to the local index, this gives us
@@ -1866,7 +1874,7 @@ func sendIndexes(conn protocol.Connection, folder string, fs *db.FileSet, ignore
 
 // sendIndexTo sends file infos with a sequence number higher than prevSequence and
 // returns the highest sent sequence number.
-func sendIndexTo(prevSequence int64, conn protocol.Connection, folder string, fs *db.FileSet, ignores *ignore.Matcher, dbLocation string, dropSymlinks bool) (int64, error) {
+func sendIndexTo(prevSequence int64, conn protocol.Connection, folder string, fs *db.FileSet, ignores *ignore.Matcher, dropSymlinks bool) (int64, error) {
 	deviceID := conn.ID()
 	initial := prevSequence == 0
 	batch := newFileInfoBatch(nil)
@@ -2379,6 +2387,11 @@ func (m *Model) GetFolderVersions(folder string) (map[string][]versioner.FileVer
 			return nil
 		}
 
+		// Skip walking if we cannot walk...
+		if err != nil {
+			return err
+		}
+
 		// Ignore symlinks
 		if f.IsSymlink() {
 			return fs.SkipDir
@@ -2582,6 +2595,10 @@ func (m *Model) CommitConfiguration(from, to config.Configuration) bool {
 			continue
 		}
 
+		if fromCfg.Paused && toCfg.Paused {
+			continue
+		}
+
 		// This folder exists on both sides. Settings might have changed.
 		// Check if anything differs that requires a restart.
 		if !reflect.DeepEqual(fromCfg.RequiresRestartOnly(), toCfg.RequiresRestartOnly()) {
@@ -2616,12 +2633,12 @@ func (m *Model) CommitConfiguration(from, to config.Configuration) bool {
 
 		// Ignored folder was removed, reconnect to retrigger the prompt.
 		if len(fromCfg.IgnoredFolders) > len(toCfg.IgnoredFolders) {
-			m.close(deviceID)
+			m.close(deviceID, errIgnoredFolderRemoved)
 		}
 
 		if toCfg.Paused {
 			l.Infoln("Pausing", deviceID)
-			m.close(deviceID)
+			m.close(deviceID, errDevicePaused)
 			events.Default.Log(events.DevicePaused, map[string]string{"device": deviceID.String()})
 		} else {
 			events.Default.Log(events.DeviceResumed, map[string]string{"device": deviceID.String()})
@@ -2715,28 +2732,6 @@ func getChunk(data []string, skip, get int) ([]string, int, int) {
 		return data[skip:l], 0, get - (l - skip)
 	}
 	return data[skip : skip+get], 0, 0
-}
-
-func closeRawConn(conn io.Closer) error {
-	if conn, ok := conn.(*tls.Conn); ok {
-		// If the underlying connection is a *tls.Conn, Close() does more
-		// than it says on the tin. Specifically, it sends a TLS alert
-		// message, which might block forever if the connection is dead
-		// and we don't have a deadline set.
-		conn.SetWriteDeadline(time.Now().Add(250 * time.Millisecond))
-	}
-	return conn.Close()
-}
-
-func stringSliceWithout(ss []string, s string) []string {
-	for i := range ss {
-		if ss[i] == s {
-			copy(ss[i:], ss[i+1:])
-			ss = ss[:len(ss)-1]
-			return ss
-		}
-	}
-	return ss
 }
 
 func readOffsetIntoBuf(fs fs.Filesystem, file string, offset int64, buf []byte) error {

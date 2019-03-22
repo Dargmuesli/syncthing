@@ -20,6 +20,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/syncthing/syncthing/lib/build"
 	"github.com/syncthing/syncthing/lib/config"
 	"github.com/syncthing/syncthing/lib/connections"
 	"github.com/syncthing/syncthing/lib/dialer"
@@ -41,8 +42,8 @@ func reportData(cfg configIntf, m modelIntf, connectionsService connectionsIntf,
 	res := make(map[string]interface{})
 	res["urVersion"] = version
 	res["uniqueID"] = opts.URUniqueID
-	res["version"] = Version
-	res["longVersion"] = LongVersion
+	res["version"] = build.Version
+	res["longVersion"] = build.LongVersion
 	res["platform"] = runtime.GOOS + "-" + runtime.GOARCH
 	res["numFolders"] = len(cfg.Folders())
 	res["numDevices"] = len(cfg.Devices())
@@ -190,7 +191,7 @@ func reportData(cfg configIntf, m modelIntf, connectionsService connectionsIntf,
 	res["upgradeAllowedPre"] = !(upgrade.DisabledByCompilation || noUpgradeFromEnv) && opts.AutoUpgradeIntervalH > 0 && opts.UpgradeToPreReleases
 
 	if version >= 3 {
-		res["uptime"] = int(time.Now().Sub(startTime).Seconds())
+		res["uptime"] = int(time.Since(startTime).Seconds())
 		res["natType"] = connectionsService.NATType()
 		res["alwaysLocalNets"] = len(opts.AlwaysLocalNets) > 0
 		res["cacheIgnoredFiles"] = opts.CacheIgnoredFiles
@@ -348,7 +349,9 @@ func newUsageReportingService(cfg *config.Wrapper, model *model.Model, connectio
 func (s *usageReportingService) sendUsageReport() error {
 	d := reportData(s.cfg, s.model, s.connectionsService, s.cfg.Options().URAccepted, false)
 	var b bytes.Buffer
-	json.NewEncoder(&b).Encode(d)
+	if err := json.NewEncoder(&b).Encode(d); err != nil {
+		return err
+	}
 
 	client := &http.Client{
 		Transport: &http.Transport{
@@ -417,7 +420,7 @@ func (s *usageReportingService) Stop() {
 	s.stopMut.RUnlock()
 }
 
-func (usageReportingService) String() string {
+func (*usageReportingService) String() string {
 	return "usageReportingService"
 }
 
