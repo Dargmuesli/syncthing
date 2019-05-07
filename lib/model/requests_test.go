@@ -370,14 +370,12 @@ func pullInvalidIgnored(t *testing.T, ft config.FolderType) {
 
 	fc.sendIndexUpdate()
 
-	timeout := time.NewTimer(5 * time.Second)
 	select {
 	case ev := <-sub.C():
 		t.Fatalf("Errors while pulling: %v", ev)
-	case <-timeout.C:
+	case <-time.After(5 * time.Second):
 		t.Fatalf("timed out before index was received")
 	case <-done:
-		return
 	}
 
 	fc.mut.Lock()
@@ -421,12 +419,10 @@ func pullInvalidIgnored(t *testing.T, ft config.FolderType) {
 		panic(err)
 	}
 
-	timeout = time.NewTimer(5 * time.Second)
 	select {
-	case <-timeout.C:
+	case <-time.After(5 * time.Second):
 		t.Fatalf("timed out before index was received")
 	case <-done:
-		return
 	}
 }
 
@@ -452,7 +448,8 @@ func TestIssue4841(t *testing.T) {
 	fc.mut.Unlock()
 
 	// Setup file from remote that was ignored locally
-	m.updateLocals(defaultFolderConfig.ID, []protocol.FileInfo{{
+	folder := m.folderRunners[defaultFolderConfig.ID].(*sendReceiveFolder)
+	folder.updateLocals([]protocol.FileInfo{{
 		Name:       "foo",
 		Type:       protocol.FileInfoTypeFile,
 		LocalFlags: protocol.FlagLocalIgnored,

@@ -2,7 +2,7 @@ ARG SERVE_U=amd64
 ARG SERVE_R=alpine
 
 ### Build ###
-FROM golang:1.11-alpine AS builder
+FROM golang:1.12-alpine AS builder
 
 ARG BUILD_GOOS=linux
 ARG BUILD_GOARCH=amd64

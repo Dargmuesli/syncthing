@@ -1,5 +1,5 @@
 ### Build ###
-FROM golang:1.11-alpine AS builder
+FROM golang:1.12-alpine AS builder
 
 ENV CGO_ENABLED=0
 ENV BUILD_HOST=syncthing.net

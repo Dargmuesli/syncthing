@@ -265,7 +265,7 @@ func (f *sendReceiveFolder) pullerIteration(scanChan chan<- string) int {
 		doneWg.Done()
 	}()
 
-	changed, fileDeletions, dirDeletions, err := f.processNeeded(dbUpdateChan, copyChan, finisherChan, scanChan)
+	changed, fileDeletions, dirDeletions, err := f.processNeeded(dbUpdateChan, copyChan, scanChan)
 
 	// Signal copy and puller routines that we are done with the in data for
 	// this iteration. Wait for them to finish.
@@ -290,9 +290,10 @@ func (f *sendReceiveFolder) pullerIteration(scanChan chan<- string) int {
 	return changed
 }
 
-func (f *sendReceiveFolder) processNeeded(dbUpdateChan chan<- dbUpdateJob, copyChan chan<- copyBlocksState, finisherChan chan<- *sharedPullerState, scanChan chan<- string) (int, map[string]protocol.FileInfo, []protocol.FileInfo, error) {
+func (f *sendReceiveFolder) processNeeded(dbUpdateChan chan<- dbUpdateJob, copyChan chan<- copyBlocksState, scanChan chan<- string) (int, map[string]protocol.FileInfo, []protocol.FileInfo, error) {
+	defer f.queue.Reset()
+
 	changed := 0
-	var processDirectly []protocol.FileInfo
 	var dirDeletions []protocol.FileInfo
 	fileDeletions := map[string]protocol.FileInfo{}
 	buckets := map[string][]protocol.FileInfo{}
@@ -346,8 +347,16 @@ func (f *sendReceiveFolder) processNeeded(dbUpdateChan chan<- dbUpdateJob, copyC
 			changed++
 
 		case file.Type == protocol.FileInfoTypeFile:
-			// Queue files for processing after directories and symlinks.
-			f.queue.Push(file.Name, file.Size, file.ModTime())
+			curFile, hasCurFile := f.fset.Get(protocol.LocalDeviceID, file.Name)
+			if _, need := blockDiff(curFile.Blocks, file.Blocks); hasCurFile && len(need) == 0 {
+				// We are supposed to copy the entire file, and then fetch nothing. We
+				// are only updating metadata, so we don't actually *need* to make the
+				// copy.
+				f.shortcutFile(file, curFile, dbUpdateChan)
+			} else {
+				// Queue files for processing after directories and symlinks.
+				f.queue.Push(file.Name, file.Size, file.ModTime())
+			}
 
 		case runtime.GOOS == "windows" && file.IsSymlink():
 			file.SetUnsupported(f.shortID)
@@ -355,11 +364,23 @@ func (f *sendReceiveFolder) processNeeded(dbUpdateChan chan<- dbUpdateJob, copyC
 			dbUpdateChan <- dbUpdateJob{file, dbUpdateInvalidate}
 			changed++
 
-		default:
-			// Directories, symlinks
-			l.Debugln(f, "to be processed directly", file)
-			processDirectly = append(processDirectly, file)
+		case file.IsDirectory() && !file.IsSymlink():
 			changed++
+			l.Debugln(f, "Handling directory", file.Name)
+			if f.checkParent(file.Name, scanChan) {
+				f.handleDir(file, dbUpdateChan, scanChan)
+			}
+
+		case file.IsSymlink():
+			changed++
+			l.Debugln(f, "Handling symlink", file.Name)
+			if f.checkParent(file.Name, scanChan) {
+				f.handleSymlink(file, dbUpdateChan, scanChan)
+			}
+
+		default:
+			l.Warnln(file)
+			panic("unhandleable item type, can't happen")
 		}
 
 		return true
@@ -369,39 +390,6 @@ func (f *sendReceiveFolder) processNeeded(dbUpdateChan chan<- dbUpdateJob, copyC
 	case <-f.ctx.Done():
 		return changed, nil, nil, f.ctx.Err()
 	default:
-	}
-
-	// Sort the "process directly" pile by number of path components. This
-	// ensures that we handle parents before children.
-
-	sort.Sort(byComponentCount(processDirectly))
-
-	// Process the list.
-
-	for _, fi := range processDirectly {
-		select {
-		case <-f.ctx.Done():
-			return changed, fileDeletions, dirDeletions, f.ctx.Err()
-		default:
-		}
-
-		if !f.checkParent(fi.Name, scanChan) {
-			continue
-		}
-
-		switch {
-		case fi.IsDirectory() && !fi.IsSymlink():
-			l.Debugln(f, "Handling directory", fi.Name)
-			f.handleDir(fi, dbUpdateChan, scanChan)
-
-		case fi.IsSymlink():
-			l.Debugln(f, "Handling symlink", fi.Name)
-			f.handleSymlink(fi, dbUpdateChan, scanChan)
-
-		default:
-			l.Warnln(fi)
-			panic("unhandleable item type, can't happen")
-		}
 	}
 
 	// Now do the file queue. Reorder it according to configuration.
@@ -478,6 +466,7 @@ nextFile:
 				// Remove the pending deletion (as we performed it by renaming)
 				delete(fileDeletions, candidate.Name)
 
+				changed++
 				f.queue.Done(fileName)
 				continue nextFile
 			}
@@ -488,11 +477,12 @@ nextFile:
 			if _, ok := f.model.Connection(dev); ok {
 				changed++
 				// Handle the file normally, by coping and pulling, etc.
-				f.handleFile(fi, copyChan, finisherChan, dbUpdateChan)
+				f.handleFile(fi, copyChan, dbUpdateChan)
 				continue nextFile
 			}
 		}
 		f.newPullError(fileName, errNotAvailable)
+		f.queue.Done(fileName)
 	}
 
 	return changed, fileDeletions, dirDeletions, nil
@@ -1017,18 +1007,10 @@ func (f *sendReceiveFolder) renameFile(cur, source, target protocol.FileInfo, db
 
 // handleFile queues the copies and pulls as necessary for a single new or
 // changed file.
-func (f *sendReceiveFolder) handleFile(file protocol.FileInfo, copyChan chan<- copyBlocksState, finisherChan chan<- *sharedPullerState, dbUpdateChan chan<- dbUpdateJob) {
+func (f *sendReceiveFolder) handleFile(file protocol.FileInfo, copyChan chan<- copyBlocksState, dbUpdateChan chan<- dbUpdateJob) {
 	curFile, hasCurFile := f.fset.Get(protocol.LocalDeviceID, file.Name)
 
-	have, need := blockDiff(curFile.Blocks, file.Blocks)
-
-	if hasCurFile && len(need) == 0 {
-		// We are supposed to copy the entire file, and then fetch nothing. We
-		// are only updating metadata, so we don't actually *need* to make the
-		// copy.
-		f.shortcutFile(file, curFile, dbUpdateChan)
-		return
-	}
+	have, _ := blockDiff(curFile.Blocks, file.Blocks)
 
 	tempName := fs.TempName(file.Name)
 
@@ -1568,6 +1550,10 @@ func (f *sendReceiveFolder) finisherRoutine(in <-chan *sharedPullerState, dbUpda
 				blockStatsMut.Unlock()
 			}
 
+			if f.model.progressEmitter != nil {
+				f.model.progressEmitter.Deregister(state)
+			}
+
 			events.Default.Log(events.ItemFinished, map[string]interface{}{
 				"folder": f.folderID,
 				"item":   state.file.Name,
@@ -1575,10 +1561,6 @@ func (f *sendReceiveFolder) finisherRoutine(in <-chan *sharedPullerState, dbUpda
 				"type":   "file",
 				"action": "update",
 			})
-
-			if f.model.progressEmitter != nil {
-				f.model.progressEmitter.Deregister(state)
-			}
 		}
 	}
 }
@@ -1622,7 +1604,7 @@ func (f *sendReceiveFolder) dbUpdaterRoutine(dbUpdateChan <-chan dbUpdateJob) {
 
 		// All updates to file/folder objects that originated remotely
 		// (across the network) use this call to updateLocals
-		f.model.updateLocalsFromPulling(f.folderID, files)
+		f.updateLocalsFromPulling(files)
 
 		if found {
 			f.ReceivedFile(lastFile.Name, lastFile.IsDeleted())
@@ -1972,32 +1954,6 @@ func (l fileErrorList) Less(a, b int) bool {
 
 func (l fileErrorList) Swap(a, b int) {
 	l[a], l[b] = l[b], l[a]
-}
-
-// byComponentCount sorts by the number of path components in Name, that is
-// "x/y" sorts before "foo/bar/baz".
-type byComponentCount []protocol.FileInfo
-
-func (l byComponentCount) Len() int {
-	return len(l)
-}
-
-func (l byComponentCount) Less(a, b int) bool {
-	return componentCount(l[a].Name) < componentCount(l[b].Name)
-}
-
-func (l byComponentCount) Swap(a, b int) {
-	l[a], l[b] = l[b], l[a]
-}
-
-func componentCount(name string) int {
-	count := 0
-	for _, codepoint := range name {
-		if codepoint == fs.PathSeparator {
-			count++
-		}
-	}
-	return count
 }
 
 func conflictName(name, lastModBy string) string {

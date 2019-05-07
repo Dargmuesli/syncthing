@@ -94,11 +94,6 @@ func setupSendReceiveFolder(files ...protocol.FileInfo) (*model, *sendReceiveFol
 	fcfg := testFolderConfigTmp()
 	model.AddFolder(fcfg)
 
-	// Update index
-	if files != nil {
-		model.updateLocalsFromScanning("default", files)
-	}
-
 	f := &sendReceiveFolder{
 		folder: folder{
 			stateTracker:        newStateTracker("default"),
@@ -114,6 +109,11 @@ func setupSendReceiveFolder(files ...protocol.FileInfo) (*model, *sendReceiveFol
 		pullErrorsMut: sync.NewMutex(),
 	}
 	f.fs = fs.NewMtimeFS(f.Filesystem(), db.NewNamespacedKV(model.db, "mtime"))
+
+	// Update index
+	if files != nil {
+		f.updateLocalsFromScanning(files)
+	}
 
 	// Folders are never actually started, so no initial scan will be done
 	close(f.initialScanFinished)
@@ -145,7 +145,7 @@ func TestHandleFile(t *testing.T) {
 	copyChan := make(chan copyBlocksState, 1)
 	dbUpdateChan := make(chan dbUpdateJob, 1)
 
-	f.handleFile(requiredFile, copyChan, nil, dbUpdateChan)
+	f.handleFile(requiredFile, copyChan, dbUpdateChan)
 
 	// Receive the results
 	toCopy := <-copyChan
@@ -195,7 +195,7 @@ func TestHandleFileWithTemp(t *testing.T) {
 	copyChan := make(chan copyBlocksState, 1)
 	dbUpdateChan := make(chan dbUpdateJob, 1)
 
-	f.handleFile(requiredFile, copyChan, nil, dbUpdateChan)
+	f.handleFile(requiredFile, copyChan, dbUpdateChan)
 
 	// Receive the results
 	toCopy := <-copyChan
@@ -253,7 +253,7 @@ func TestCopierFinder(t *testing.T) {
 	// Run a single fetcher routine
 	go f.copierRoutine(copyChan, pullChan, finisherChan)
 
-	f.handleFile(requiredFile, copyChan, finisherChan, dbUpdateChan)
+	f.handleFile(requiredFile, copyChan, dbUpdateChan)
 
 	pulls := []pullBlockState{<-pullChan, <-pullChan, <-pullChan, <-pullChan}
 	finish := <-finisherChan
@@ -362,7 +362,7 @@ func TestWeakHash(t *testing.T) {
 		ModifiedS: info.ModTime().Unix() + 1,
 	}
 
-	model.updateLocalsFromScanning("default", []protocol.FileInfo{existingFile})
+	fo.updateLocalsFromScanning([]protocol.FileInfo{existingFile})
 
 	copyChan := make(chan copyBlocksState)
 	pullChan := make(chan pullBlockState, expectBlocks)
@@ -374,7 +374,7 @@ func TestWeakHash(t *testing.T) {
 
 	// Test 1 - no weak hashing, file gets fully repulled (`expectBlocks` pulls).
 	fo.WeakHashThresholdPct = 101
-	fo.handleFile(desiredFile, copyChan, finisherChan, dbUpdateChan)
+	fo.handleFile(desiredFile, copyChan, dbUpdateChan)
 
 	var pulls []pullBlockState
 	for len(pulls) < expectBlocks {
@@ -402,7 +402,7 @@ func TestWeakHash(t *testing.T) {
 
 	// Test 2 - using weak hash, expectPulls blocks pulled.
 	fo.WeakHashThresholdPct = -1
-	fo.handleFile(desiredFile, copyChan, finisherChan, dbUpdateChan)
+	fo.handleFile(desiredFile, copyChan, dbUpdateChan)
 
 	pulls = pulls[:0]
 	for len(pulls) < expectPulls {
@@ -440,7 +440,7 @@ func TestCopierCleanup(t *testing.T) {
 	file.Blocks = []protocol.BlockInfo{blocks[1]}
 	file.Version = file.Version.Update(myID.Short())
 	// Update index (removing old blocks)
-	m.updateLocalsFromScanning("default", []protocol.FileInfo{file})
+	f.updateLocalsFromScanning([]protocol.FileInfo{file})
 
 	if m.finder.Iterate(folders, blocks[0].Hash, iterFn) {
 		t.Error("Unexpected block found")
@@ -453,7 +453,7 @@ func TestCopierCleanup(t *testing.T) {
 	file.Blocks = []protocol.BlockInfo{blocks[0]}
 	file.Version = file.Version.Update(myID.Short())
 	// Update index (removing old blocks)
-	m.updateLocalsFromScanning("default", []protocol.FileInfo{file})
+	f.updateLocalsFromScanning([]protocol.FileInfo{file})
 
 	if !m.finder.Iterate(folders, blocks[0].Hash, iterFn) {
 		t.Error("Unexpected block found")
@@ -493,7 +493,7 @@ func TestDeregisterOnFailInCopy(t *testing.T) {
 	go f.copierRoutine(copyChan, pullChan, finisherBufferChan)
 	go f.finisherRoutine(finisherChan, dbUpdateChan, make(chan string))
 
-	f.handleFile(file, copyChan, finisherChan, dbUpdateChan)
+	f.handleFile(file, copyChan, dbUpdateChan)
 
 	// Receive a block at puller, to indicate that at least a single copier
 	// loop has been performed.
@@ -584,7 +584,7 @@ func TestDeregisterOnFailInPull(t *testing.T) {
 	go f.pullerRoutine(pullChan, finisherBufferChan)
 	go f.finisherRoutine(finisherChan, dbUpdateChan, make(chan string))
 
-	f.handleFile(file, copyChan, finisherChan, dbUpdateChan)
+	f.handleFile(file, copyChan, dbUpdateChan)
 
 	// Receive at finisher, we should error out as puller has nowhere to pull
 	// from.
@@ -832,7 +832,7 @@ func TestCopyOwner(t *testing.T) {
 	defer close(copierChan)
 	go f.copierRoutine(copierChan, nil, finisherChan)
 	go f.finisherRoutine(finisherChan, dbUpdateChan, nil)
-	f.handleFile(file, copierChan, nil, nil)
+	f.handleFile(file, copierChan, nil)
 	<-dbUpdateChan
 
 	info, err = f.fs.Lstat("foo/bar/baz")
@@ -878,7 +878,7 @@ func TestSRConflictReplaceFileByDir(t *testing.T) {
 	// create local file
 	file := createFile(t, name, ffs)
 	file.Version = protocol.Vector{}.Update(myID.Short())
-	m.updateLocalsFromScanning(f.ID, []protocol.FileInfo{file})
+	f.updateLocalsFromScanning([]protocol.FileInfo{file})
 
 	// Simulate remote creating a dir with the same name
 	file.Type = protocol.FileInfoTypeDirectory
@@ -913,7 +913,7 @@ func TestSRConflictReplaceFileByLink(t *testing.T) {
 	// create local file
 	file := createFile(t, name, ffs)
 	file.Version = protocol.Vector{}.Update(myID.Short())
-	m.updateLocalsFromScanning(f.ID, []protocol.FileInfo{file})
+	f.updateLocalsFromScanning([]protocol.FileInfo{file})
 
 	// Simulate remote creating a symlink with the same name
 	file.Type = protocol.FileInfoTypeSymlink
